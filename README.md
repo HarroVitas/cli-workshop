@@ -10,6 +10,10 @@ Tailspin Toys is a crowdfunding platform for games with a developer theme. The p
 - **Vitest** — unit tests for the data layer and pure transforms.
 - **Playwright** — end-to-end tests run against the built static site.
 
+## Filtering games
+
+The home page lets users filter games by one or more categories and by publisher; the filters combine (any selected category AND the chosen publisher). Because the site is static, filtering runs in a small client-side script (`src/lib/gameFilters.ts`) and is mirrored in the URL (`?category=1&category=2&publisher=3`) so views can be shared. The matching `filterGames`, `getAllCategories`, and `getAllPublishers` helpers live in `src/lib/games.ts`.
+
 Development commands are defined in `package.json`: npm runs Astro for the dev server, static build, and preview. The `predev` and `prebuild` npm hooks run the TypeScript database migration and seed tasks in `db/`, writing to the gitignored `tailspin.db` file.
 
 ## Using this template
