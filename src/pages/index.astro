@@ -4,11 +4,17 @@ import GameCard from '../components/GameCard.astro';
 import PageHero from '../components/PageHero.astro';
 import EmptyState from '../components/EmptyState.astro';
 import { getDatabase } from '../lib/db';
-import { getAllGames } from '../lib/games';
+import GameFilters from '../components/GameFilters.astro';
+import { getAllCategories, getAllGames, getAllPublishers } from '../lib/games';
 
 export const prerender = true;
 
-const games = await getAllGames(getDatabase());
+const db = getDatabase();
+const [games, categories, publishers] = await Promise.all([
+  getAllGames(db),
+  getAllCategories(db),
+  getAllPublishers(db),
+]);
 ---
 
 <Layout title="Tailspin Toys - Crowdfunding your new favorite game!">
@@ -24,10 +30,92 @@ const games = await getAllGames(getDatabase());
       {games.length === 0 ? (
         <EmptyState text="No games available at the moment." />
       ) : (
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="games-grid">
-          {games.map((game) => <GameCard game={game} />)}
-        </div>
+        <>
+          <GameFilters categories={categories} publishers={publishers} />
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6" data-testid="games-grid">
+            {games.map((game) => (
+              <div
+                data-game-item
+                data-category-id={game.category?.id ?? ''}
+                data-publisher-id={game.publisher?.id ?? ''}
+              >
+                <GameCard game={game} />
+              </div>
+            ))}
+          </div>
+          <div data-filter-empty hidden>
+            <EmptyState text="No games match the selected filters." />
+          </div>
+        </>
       )}
     </div>
   </div>
 </Layout>
+
+<script>
+  import { matchesFilters } from '../lib/gameFilters';
+
+  const form = document.querySelector<HTMLFormElement>('[data-game-filters]');
+  const items = Array.from(document.querySelectorAll<HTMLElement>('[data-game-item]'));
+  const emptyState = document.querySelector<HTMLElement>('[data-filter-empty]');
+  const count = form?.querySelector<HTMLElement>('[data-filter-count]');
+  const publisherSelect = form?.querySelector<HTMLSelectElement>('select[name="publisher"]');
+  const checkboxes = Array.from(
+    form?.querySelectorAll<HTMLInputElement>('input[name="category"]') ?? [],
+  );
+
+  /**
+   * Converts a dataset/form value to a numeric id.
+   *
+   * @param value - The raw string value, possibly empty or undefined.
+   * @returns The numeric id, or `null` when the value is empty.
+   */
+  const toId = (value: string | undefined): number | null =>
+    value ? Number(value) : null;
+
+  /**
+   * Shows only the games matching the current form state, updates the empty
+   * state and result count, and syncs the selection to the URL query string.
+   */
+  function applyFilters(): void {
+    const categoryIds = checkboxes.filter((c) => c.checked).map((c) => Number(c.value));
+    const publisherId = toId(publisherSelect?.value);
+
+    let visible = 0;
+    for (const item of items) {
+      const match = matchesFilters(
+        {
+          categoryId: toId(item.dataset.categoryId),
+          publisherId: toId(item.dataset.publisherId),
+        },
+        { categoryIds, publisherId },
+      );
+      item.hidden = !match;
+      if (match) visible++;
+    }
+
+    if (emptyState) emptyState.hidden = visible > 0;
+    if (count) count.textContent = `Showing ${visible} of ${items.length} games`;
+
+    const params = new URLSearchParams();
+    categoryIds.forEach((id) => params.append('category', String(id)));
+    if (publisherId !== null) params.set('publisher', String(publisherId));
+    const query = params.toString();
+    history.replaceState(null, '', query ? `?${query}` : location.pathname);
+  }
+
+  if (form) {
+    const params = new URLSearchParams(location.search);
+    const selected = params.getAll('category');
+    checkboxes.forEach((c) => (c.checked = selected.includes(c.value)));
+    if (publisherSelect) publisherSelect.value = params.get('publisher') ?? '';
+
+    form.addEventListener('change', applyFilters);
+    form.addEventListener('submit', (event) => event.preventDefault());
+    form.querySelector('[data-filter-clear]')?.addEventListener('click', () => {
+      form.reset();
+      applyFilters();
+    });
+    applyFilters();
+  }
+</script>

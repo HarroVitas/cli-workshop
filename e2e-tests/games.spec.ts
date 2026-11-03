@@ -1,4 +1,4 @@
-import { test, expect, type Response } from '@playwright/test';
+import { test, expect, type Page, type Response } from '@playwright/test';
 
 test.describe('Game Listing and Navigation', () => {
   test('should show each game card rating out of 5', async ({ page }) => {
@@ -138,5 +138,89 @@ test.describe('Game Listing and Navigation', () => {
       await expect(page.getByTestId('not-found-heading')).not.toBeEmpty();
       await expect(page.getByTestId('not-found-home-link')).toBeVisible();
     });
+  });
+});
+
+test.describe('Game filtering', () => {
+  const visibleCards = (page: Page) => page.locator('[data-game-item]:visible [data-testid="game-card"]');
+
+  test('should filter by category, including multiple categories', async ({ page }) => {
+    await page.goto('/');
+    const total = await visibleCards(page).count();
+    const categoryBoxes = page.locator('[data-testid^="filter-category-"]');
+
+    await categoryBoxes.first().check();
+    const first = await visibleCards(page).count();
+    expect(first).toBeGreaterThan(0);
+    expect(first).toBeLessThan(total);
+    await expect(visibleCards(page).first().getByTestId('game-category')).toHaveText(
+      (await categoryBoxes.first().locator('xpath=..').innerText()).trim(),
+    );
+
+    await categoryBoxes.nth(1).check();
+    expect(await visibleCards(page).count()).toBeGreaterThan(first);
+  });
+
+  test('should filter by publisher and combine with category', async ({ page }) => {
+    await page.goto('/');
+    const publisher = page.getByTestId('filter-publisher');
+    await publisher.selectOption({ index: 1 });
+    const publisherName = await publisher.locator('option:checked').innerText();
+    const byPublisher = await visibleCards(page).count();
+    expect(byPublisher).toBeGreaterThan(0);
+    for (const tag of await visibleCards(page).getByTestId('game-publisher').allInnerTexts()) {
+      expect(tag).toBe(publisherName);
+    }
+
+    await page.locator('[data-testid^="filter-category-"]').first().check();
+    expect(await visibleCards(page).count()).toBeLessThanOrEqual(byPublisher);
+    await expect(page.getByTestId('filter-count')).toContainText('Showing');
+  });
+
+  test('should restore all games when filters are cleared', async ({ page }) => {
+    await page.goto('/');
+    const total = await visibleCards(page).count();
+    await page.locator('[data-testid^="filter-category-"]').first().check();
+    await page.getByTestId('filter-publisher').selectOption({ index: 1 });
+    expect(await visibleCards(page).count()).toBeLessThan(total);
+
+    await page.getByTestId('filter-clear').click();
+    expect(await visibleCards(page).count()).toBe(total);
+    await expect(page.getByTestId('empty-state')).toBeHidden();
+    await expect(page).toHaveURL('/');
+  });
+
+  test('should show the empty state when no games match', async ({ page }) => {
+    await page.goto('/');
+    const publisher = page.getByTestId('filter-publisher');
+    const publisherId = await publisher.locator('option').nth(1).getAttribute('value');
+
+    // Every seeded publisher has games, so reassign this one's cards to a non-existent publisher to make the selection match nothing.
+    await page.locator(`[data-game-item][data-publisher-id="${publisherId}"]`).evaluateAll((els) =>
+      els.forEach((el) => ((el as HTMLElement).dataset.publisherId = '999999')),
+    );
+    await publisher.selectOption(publisherId);
+
+    await expect(page.getByTestId('empty-state')).toBeVisible();
+    await expect(page.getByTestId('empty-state')).toContainText('No games match the selected filters.');
+    await expect(visibleCards(page)).toHaveCount(0);
+    await expect(page.getByTestId('filter-count')).toHaveText(/^Showing 0 of \d+ games$/);
+
+    await page.getByTestId('filter-clear').click();
+    await expect(page.getByTestId('empty-state')).toBeHidden();
+    await expect(visibleCards(page).first()).toBeVisible();
+  });
+
+  test('should be operable by keyboard and keep filters in the URL', async ({ page }) => {
+    await page.goto('/');
+    const box = page.locator('[data-testid^="filter-category-"]').first();
+    await box.focus();
+    await expect(box).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(box).toBeChecked();
+    await expect(page).toHaveURL(/\?category=\d+/);
+
+    await page.reload();
+    await expect(box).toBeChecked();
   });
 });
