@@ -190,6 +190,27 @@ test.describe('Game filtering', () => {
     await expect(page).toHaveURL('/');
   });
 
+  test('should show the empty state when no games match', async ({ page }) => {
+    await page.goto('/');
+    const publisher = page.getByTestId('filter-publisher');
+    const publisherId = await publisher.locator('option').nth(1).getAttribute('value');
+
+    // Every seeded publisher has games, so reassign this one's cards to a non-existent publisher to make the selection match nothing.
+    await page.locator(`[data-game-item][data-publisher-id="${publisherId}"]`).evaluateAll((els) =>
+      els.forEach((el) => ((el as HTMLElement).dataset.publisherId = '999999')),
+    );
+    await publisher.selectOption(publisherId);
+
+    await expect(page.getByTestId('empty-state')).toBeVisible();
+    await expect(page.getByTestId('empty-state')).toContainText('No games match the selected filters.');
+    await expect(visibleCards(page)).toHaveCount(0);
+    await expect(page.getByTestId('filter-count')).toHaveText(/^Showing 0 of \d+ games$/);
+
+    await page.getByTestId('filter-clear').click();
+    await expect(page.getByTestId('empty-state')).toBeHidden();
+    await expect(visibleCards(page).first()).toBeVisible();
+  });
+
   test('should be operable by keyboard and keep filters in the URL', async ({ page }) => {
     await page.goto('/');
     const box = page.locator('[data-testid^="filter-category-"]').first();
